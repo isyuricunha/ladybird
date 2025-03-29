@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/QuickSort.h>
 #include <LibJS/Runtime/AbstractOperations.h>
 #include <LibJS/Runtime/Array.h>
 #include <LibJS/Runtime/ArrayBuffer.h>
@@ -20,6 +21,7 @@
 #include <LibWeb/IndexedDB/Internal/Algorithms.h>
 #include <LibWeb/IndexedDB/Internal/ConnectionQueueHandler.h>
 #include <LibWeb/IndexedDB/Internal/Database.h>
+#include <LibWeb/Infra/Strings.h>
 #include <LibWeb/StorageAPI/StorageKey.h>
 #include <LibWeb/WebIDL/AbstractOperations.h>
 #include <LibWeb/WebIDL/Buffers.h>
@@ -587,6 +589,50 @@ JS::Value convert_a_key_to_a_value(JS::Realm& realm, GC::Ref<Key> key)
     }
 
     VERIFY_NOT_REACHED();
+}
+
+// https://w3c.github.io/IndexedDB/#valid-key-path
+bool is_valid_key_path(KeyPath const& path)
+{
+    // A valid key path is one of:
+    return path.visit(
+        [](String const& value) -> bool {
+            // * An empty string.
+            if (value.is_empty())
+                return true;
+
+            // FIXME: * An identifier, which is a string matching the IdentifierName production from the ECMAScript Language Specification [ECMA-262].
+            return true;
+
+            // FIXME: * A string consisting of two or more identifiers separated by periods (U+002E FULL STOP).
+            return true;
+
+            return false;
+        },
+        [](Vector<String> const& values) -> bool {
+            // * A non-empty list containing only strings conforming to the above requirements.
+            if (values.is_empty())
+                return false;
+
+            for (auto const& value : values) {
+                if (!is_valid_key_path(value))
+                    return false;
+            }
+
+            return true;
+        });
+}
+
+// https://w3c.github.io/IndexedDB/#create-a-sorted-name-list
+GC::Ref<HTML::DOMStringList> create_a_sorted_name_list(JS::Realm& realm, Vector<String> names)
+{
+    // 1. Let sorted be names sorted in ascending order with the code unit less than algorithm.
+    quick_sort(names, [](auto const& a, auto const& b) {
+        return Infra::code_unit_less_than(a, b);
+    });
+
+    // 2. Return a new DOMStringList associated with sorted.
+    return HTML::DOMStringList::create(realm, names);
 }
 
 }

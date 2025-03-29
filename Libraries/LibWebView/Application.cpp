@@ -5,7 +5,6 @@
  */
 
 #include <AK/Debug.h>
-#include <AK/JsonArraySerializer.h>
 #include <LibCore/ArgsParser.h>
 #include <LibCore/Environment.h>
 #include <LibCore/StandardPaths.h>
@@ -322,48 +321,6 @@ void Application::set_process_mach_port(pid_t pid, Core::MachPort&& port)
 Optional<Process&> Application::find_process(pid_t pid)
 {
     return m_process_manager.find_process(pid);
-}
-
-void Application::send_updated_process_statistics_to_view(ViewImplementation& view)
-{
-    m_process_manager.update_all_process_statistics();
-    auto statistics = m_process_manager.serialize_json();
-
-    StringBuilder builder;
-    builder.append("processes.loadProcessStatistics(\""sv);
-    builder.append_escaped_for_json(statistics);
-    builder.append("\");"sv);
-
-    view.run_javascript(MUST(builder.to_string()));
-}
-
-void Application::send_current_settings_to_view(ViewImplementation& view)
-{
-    auto settings = m_settings.serialize_json();
-
-    StringBuilder builder;
-    builder.append("settings.loadSettings(\""sv);
-    builder.append_escaped_for_json(settings);
-    builder.append("\");"sv);
-
-    view.run_javascript(MUST(builder.to_string()));
-}
-
-void Application::send_available_search_engines_to_view(ViewImplementation& view)
-{
-    StringBuilder engines;
-
-    auto serializer = MUST(JsonArraySerializer<>::try_create(engines));
-    for (auto const& engine : search_engines())
-        MUST(serializer.add(engine.name));
-    MUST(serializer.finish());
-
-    StringBuilder builder;
-    builder.append("settings.loadSearchEngines(\""sv);
-    builder.append_escaped_for_json(engines.string_view());
-    builder.append("\");"sv);
-
-    view.run_javascript(MUST(builder.to_string()));
 }
 
 void Application::process_did_exit(Process&& process)
@@ -730,7 +687,7 @@ void Application::listen_for_console_messages(DevTools::TabDescription const& de
         return;
 
     view->on_console_message_available = move(on_console_message_available);
-    view->on_received_unstyled_console_messages = move(on_received_console_output);
+    view->on_received_console_messages = move(on_received_console_output);
     view->js_console_request_messages(0);
 }
 
@@ -741,7 +698,7 @@ void Application::stop_listening_for_console_messages(DevTools::TabDescription c
         return;
 
     view->on_console_message_available = nullptr;
-    view->on_received_unstyled_console_messages = nullptr;
+    view->on_received_console_messages = nullptr;
 }
 
 void Application::request_console_messages(DevTools::TabDescription const& description, i32 start_index) const

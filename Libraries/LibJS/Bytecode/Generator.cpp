@@ -68,8 +68,8 @@ CodeGenerationErrorOr<void> Generator::emit_function_declaration_instantiation(E
     }
 
     auto const& formal_parameters = function.formal_parameters();
-    for (u32 param_index = 0; param_index < formal_parameters.size(); ++param_index) {
-        auto const& parameter = formal_parameters[param_index];
+    for (u32 param_index = 0; param_index < formal_parameters->size(); ++param_index) {
+        auto const& parameter = formal_parameters->parameters()[param_index];
 
         if (parameter.is_rest) {
             auto argument_reg = allocate_register();
@@ -207,11 +207,14 @@ CodeGenerationErrorOr<void> Generator::emit_function_declaration_instantiation(E
     }
 
     for (auto const& declaration : function.m_functions_to_initialize) {
-        auto function = allocate_register();
-        emit<Op::NewFunction>(function, declaration, OptionalNone {});
-        if (declaration.name_identifier()->is_local()) {
-            emit<Op::Mov>(local(declaration.name_identifier()->local_variable_index()), function);
+        auto const& identifier = *declaration.name_identifier();
+        if (identifier.is_local()) {
+            auto local_index = identifier.local_variable_index();
+            emit<Op::NewFunction>(local(local_index), declaration, OptionalNone {});
+            set_local_initialized(local_index);
         } else {
+            auto function = allocate_register();
+            emit<Op::NewFunction>(function, declaration, OptionalNone {});
             emit<Op::SetVariableBinding>(intern_identifier(declaration.name()), function);
         }
     }

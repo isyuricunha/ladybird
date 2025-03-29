@@ -33,7 +33,7 @@ namespace JS {
 
 GC_DEFINE_ALLOCATOR(ECMAScriptFunctionObject);
 
-GC::Ref<ECMAScriptFunctionObject> ECMAScriptFunctionObject::create(Realm& realm, FlyString name, ByteString source_text, Statement const& ecmascript_code, Vector<FunctionParameter> parameters, i32 m_function_length, Vector<FlyString> local_variables_names, Environment* parent_environment, PrivateEnvironment* private_environment, FunctionKind kind, bool is_strict, FunctionParsingInsights parsing_insights, bool is_arrow_function, Variant<PropertyKey, PrivateName, Empty> class_field_initializer_name)
+GC::Ref<ECMAScriptFunctionObject> ECMAScriptFunctionObject::create(Realm& realm, FlyString name, ByteString source_text, Statement const& ecmascript_code, NonnullRefPtr<FunctionParameters const> parameters, i32 m_function_length, Vector<FlyString> local_variables_names, Environment* parent_environment, PrivateEnvironment* private_environment, FunctionKind kind, bool is_strict, FunctionParsingInsights parsing_insights, bool is_arrow_function, Variant<PropertyKey, PrivateName, Empty> class_field_initializer_name)
 {
     Object* prototype = nullptr;
     switch (kind) {
@@ -53,12 +53,12 @@ GC::Ref<ECMAScriptFunctionObject> ECMAScriptFunctionObject::create(Realm& realm,
     return realm.create<ECMAScriptFunctionObject>(move(name), move(source_text), ecmascript_code, move(parameters), m_function_length, move(local_variables_names), parent_environment, private_environment, *prototype, kind, is_strict, parsing_insights, is_arrow_function, move(class_field_initializer_name));
 }
 
-GC::Ref<ECMAScriptFunctionObject> ECMAScriptFunctionObject::create(Realm& realm, FlyString name, Object& prototype, ByteString source_text, Statement const& ecmascript_code, Vector<FunctionParameter> parameters, i32 m_function_length, Vector<FlyString> local_variables_names, Environment* parent_environment, PrivateEnvironment* private_environment, FunctionKind kind, bool is_strict, FunctionParsingInsights parsing_insights, bool is_arrow_function, Variant<PropertyKey, PrivateName, Empty> class_field_initializer_name)
+GC::Ref<ECMAScriptFunctionObject> ECMAScriptFunctionObject::create(Realm& realm, FlyString name, Object& prototype, ByteString source_text, Statement const& ecmascript_code, NonnullRefPtr<FunctionParameters const> parameters, i32 m_function_length, Vector<FlyString> local_variables_names, Environment* parent_environment, PrivateEnvironment* private_environment, FunctionKind kind, bool is_strict, FunctionParsingInsights parsing_insights, bool is_arrow_function, Variant<PropertyKey, PrivateName, Empty> class_field_initializer_name)
 {
     return realm.create<ECMAScriptFunctionObject>(move(name), move(source_text), ecmascript_code, move(parameters), m_function_length, move(local_variables_names), parent_environment, private_environment, prototype, kind, is_strict, parsing_insights, is_arrow_function, move(class_field_initializer_name));
 }
 
-ECMAScriptFunctionObject::ECMAScriptFunctionObject(FlyString name, ByteString source_text, Statement const& ecmascript_code, Vector<FunctionParameter> formal_parameters, i32 function_length, Vector<FlyString> local_variables_names, Environment* parent_environment, PrivateEnvironment* private_environment, Object& prototype, FunctionKind kind, bool strict, FunctionParsingInsights parsing_insights, bool is_arrow_function, Variant<PropertyKey, PrivateName, Empty> class_field_initializer_name)
+ECMAScriptFunctionObject::ECMAScriptFunctionObject(FlyString name, ByteString source_text, Statement const& ecmascript_code, NonnullRefPtr<FunctionParameters const> formal_parameters, i32 function_length, Vector<FlyString> local_variables_names, Environment* parent_environment, PrivateEnvironment* private_environment, Object& prototype, FunctionKind kind, bool strict, FunctionParsingInsights parsing_insights, bool is_arrow_function, Variant<PropertyKey, PrivateName, Empty> class_field_initializer_name)
     : FunctionObject(prototype)
     , m_name(move(name))
     , m_function_length(function_length)
@@ -76,6 +76,9 @@ ECMAScriptFunctionObject::ECMAScriptFunctionObject(FlyString name, ByteString so
     , m_is_arrow_function(is_arrow_function)
     , m_kind(kind)
 {
+    if (!m_is_arrow_function && m_kind == FunctionKind::Normal)
+        unsafe_set_shape(m_realm->intrinsics().normal_function_shape());
+
     // NOTE: This logic is from OrdinaryFunctionCreate, https://tc39.es/ecma262/#sec-ordinaryfunctioncreate
 
     // 9. If thisMode is lexical-this, set F.[[ThisMode]] to lexical.
@@ -92,7 +95,7 @@ ECMAScriptFunctionObject::ECMAScriptFunctionObject(FlyString name, ByteString so
     m_script_or_module = vm().get_active_script_or_module();
 
     // 15.1.3 Static Semantics: IsSimpleParameterList, https://tc39.es/ecma262/#sec-static-semantics-issimpleparameterlist
-    m_has_simple_parameter_list = all_of(m_formal_parameters, [&](auto& parameter) {
+    m_has_simple_parameter_list = all_of(m_formal_parameters->parameters(), [&](auto& parameter) {
         if (parameter.is_rest)
             return false;
         if (parameter.default_value)
@@ -121,7 +124,7 @@ ECMAScriptFunctionObject::ECMAScriptFunctionObject(FlyString name, ByteString so
     size_t parameters_in_environment = 0;
 
     // NOTE: This loop performs step 5, 6, and 8.
-    for (auto const& parameter : formals) {
+    for (auto const& parameter : formals->parameters()) {
         if (parameter.default_value)
             m_has_parameter_expressions = true;
 
@@ -247,8 +250,8 @@ ECMAScriptFunctionObject::ECMAScriptFunctionObject(FlyString name, ByteString so
                     // 3. Perform ! env.InitializeBinding(n, undefined).
                     m_var_names_to_initialize_binding.append({
                         .identifier = id,
-                        .parameter_binding = parameter_bindings.contains(id.string()),
-                        .function_name = function_names.contains(id.string()),
+                        // NOTE: We don't have to set parameter_binding or function_name here
+                        //       since those are only relevant in the hasParameterExpressions==true path.
                     });
 
                     if (!id.is_local())
@@ -347,30 +350,38 @@ void ECMAScriptFunctionObject::initialize(Realm& realm)
 
     m_name_string = PrimitiveString::create(vm, m_name);
 
-    MUST(define_property_or_throw(vm.names.length, { .value = Value(m_function_length), .writable = false, .enumerable = false, .configurable = true }));
-    MUST(define_property_or_throw(vm.names.name, { .value = m_name_string, .writable = false, .enumerable = false, .configurable = true }));
+    if (!m_is_arrow_function && m_kind == FunctionKind::Normal) {
+        put_direct(realm.intrinsics().normal_function_length_offset(), Value(m_function_length));
+        put_direct(realm.intrinsics().normal_function_name_offset(), m_name_string);
 
-    if (!m_is_arrow_function) {
-        Object* prototype = nullptr;
-        switch (m_kind) {
-        case FunctionKind::Normal:
-            prototype = Object::create_prototype(realm, realm.intrinsics().object_prototype());
-            MUST(prototype->define_property_or_throw(vm.names.constructor, { .value = this, .writable = true, .enumerable = false, .configurable = true }));
-            break;
-        case FunctionKind::Generator:
-            // prototype is "g1.prototype" in figure-2 (https://tc39.es/ecma262/img/figure-2.png)
-            prototype = Object::create_prototype(realm, realm.intrinsics().generator_function_prototype_prototype());
-            break;
-        case FunctionKind::Async:
-            break;
-        case FunctionKind::AsyncGenerator:
-            prototype = Object::create_prototype(realm, realm.intrinsics().async_generator_function_prototype_prototype());
-            break;
+        auto prototype = Object::create_with_premade_shape(realm.intrinsics().normal_function_prototype_shape());
+        prototype->put_direct(realm.intrinsics().normal_function_prototype_constructor_offset(), this);
+        put_direct(realm.intrinsics().normal_function_prototype_offset(), prototype);
+    } else {
+        MUST(define_property_or_throw(vm.names.length, { .value = Value(m_function_length), .writable = false, .enumerable = false, .configurable = true }));
+        MUST(define_property_or_throw(vm.names.name, { .value = m_name_string, .writable = false, .enumerable = false, .configurable = true }));
+
+        if (!m_is_arrow_function) {
+            Object* prototype = nullptr;
+            switch (m_kind) {
+            case FunctionKind::Normal:
+                VERIFY_NOT_REACHED();
+                break;
+            case FunctionKind::Generator:
+                // prototype is "g1.prototype" in figure-2 (https://tc39.es/ecma262/img/figure-2.png)
+                prototype = Object::create_prototype(realm, realm.intrinsics().generator_function_prototype_prototype());
+                break;
+            case FunctionKind::Async:
+                break;
+            case FunctionKind::AsyncGenerator:
+                prototype = Object::create_prototype(realm, realm.intrinsics().async_generator_function_prototype_prototype());
+                break;
+            }
+            // 27.7.4 AsyncFunction Instances, https://tc39.es/ecma262/#sec-async-function-instances
+            // AsyncFunction instances do not have a prototype property as they are not constructible.
+            if (m_kind != FunctionKind::Async)
+                define_direct_property(vm.names.prototype, prototype, Attribute::Writable);
         }
-        // 27.7.4 AsyncFunction Instances, https://tc39.es/ecma262/#sec-async-function-instances
-        // AsyncFunction instances do not have a prototype property as they are not constructible.
-        if (m_kind != FunctionKind::Async)
-            define_direct_property(vm.names.prototype, prototype, Attribute::Writable);
     }
 }
 
@@ -385,11 +396,11 @@ ThrowCompletionOr<Value> ECMAScriptFunctionObject::internal_call(Value this_argu
     auto callee_context = ExecutionContext::create();
 
     // Non-standard
-    callee_context->arguments.ensure_capacity(max(arguments_list.size(), m_formal_parameters.size()));
+    callee_context->arguments.ensure_capacity(max(arguments_list.size(), m_formal_parameters->size()));
     callee_context->arguments.append(arguments_list.data(), arguments_list.size());
     callee_context->passed_argument_count = arguments_list.size();
-    if (arguments_list.size() < m_formal_parameters.size()) {
-        for (size_t i = arguments_list.size(); i < m_formal_parameters.size(); ++i)
+    if (arguments_list.size() < m_formal_parameters->size()) {
+        for (size_t i = arguments_list.size(); i < m_formal_parameters->size(); ++i)
             callee_context->arguments.append(js_undefined());
     }
 
@@ -442,11 +453,11 @@ ThrowCompletionOr<GC::Ref<Object>> ECMAScriptFunctionObject::internal_construct(
     auto callee_context = ExecutionContext::create();
 
     // Non-standard
-    callee_context->arguments.ensure_capacity(max(arguments_list.size(), m_formal_parameters.size()));
+    callee_context->arguments.ensure_capacity(max(arguments_list.size(), m_formal_parameters->size()));
     callee_context->arguments.append(arguments_list.data(), arguments_list.size());
     callee_context->passed_argument_count = arguments_list.size();
-    if (arguments_list.size() < m_formal_parameters.size()) {
-        for (size_t i = arguments_list.size(); i < m_formal_parameters.size(); ++i)
+    if (arguments_list.size() < m_formal_parameters->size()) {
+        for (size_t i = arguments_list.size(); i < m_formal_parameters->size(); ++i)
             callee_context->arguments.append(js_undefined());
     }
 

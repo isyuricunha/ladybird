@@ -583,7 +583,7 @@ ThrowCompletionOr<Value> perform_eval(VM& vm, Value x, CallerMode strict_caller,
         .in_class_field_initializer = in_class_field_initializer,
     };
 
-    Parser parser { Lexer { code_string.byte_string() }, Program::Type::Script, move(initial_state) };
+    Parser parser { Lexer { code_string.utf8_string_view() }, Program::Type::Script, move(initial_state) };
     auto program = parser.parse_program(strict_caller == CallerMode::Strict);
 
     //     b. If script is a List of errors, throw a SyntaxError exception.
@@ -1074,7 +1074,7 @@ Object* create_unmapped_arguments_object(VM& vm, ReadonlySpan<Value> arguments)
 }
 
 // 10.4.4.7 CreateMappedArgumentsObject ( func, formals, argumentsList, env ), https://tc39.es/ecma262/#sec-createmappedargumentsobject
-Object* create_mapped_arguments_object(VM& vm, FunctionObject& function, Vector<FunctionParameter> const& formals, ReadonlySpan<Value> arguments, Environment& environment)
+Object* create_mapped_arguments_object(VM& vm, FunctionObject& function, NonnullRefPtr<FunctionParameters const> const& formals, ReadonlySpan<Value> arguments, Environment& environment)
 {
     auto& realm = *vm.current_realm();
 
@@ -1113,10 +1113,10 @@ Object* create_mapped_arguments_object(VM& vm, FunctionObject& function, Vector<
 
     // 18. Set index to numberOfParameters - 1.
     // 19. Repeat, while index ≥ 0,
-    VERIFY(formals.size() <= NumericLimits<i32>::max());
-    for (i32 index = static_cast<i32>(formals.size()) - 1; index >= 0; --index) {
+    VERIFY(formals->size() <= NumericLimits<i32>::max());
+    for (i32 index = static_cast<i32>(formals->size()) - 1; index >= 0; --index) {
         // a. Let name be parameterNames[index].
-        auto const& name = formals[index].binding.get<NonnullRefPtr<Identifier const>>()->string();
+        auto const& name = formals->parameters()[index].binding.get<NonnullRefPtr<Identifier const>>()->string();
 
         // b. If name is not an element of mappedNames, then
         if (mapped_names.contains(name))

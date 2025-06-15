@@ -1,9 +1,12 @@
 {
-  "builtin-baseline": "8f54ef5453e7e76ff01e15988bf243e7247c5eb5",
+  "builtin-baseline": "89dc8be6dbcf18482a5a1bf86a2f4615c939b0fb",
   "dependencies": [
     {
       "name": "angle",
-      "platform": "osx"
+      "platform": "osx",
+      "features": [
+          "metal"
+      ]
     },
     {
       "name": "curl",
@@ -139,7 +142,7 @@
     },
     {
       "name": "curl",
-      "version": "8.13.0#0"
+      "version": "8.14.0#0"
     },
     {
       "name": "dirent",
@@ -163,7 +166,7 @@
     },
     {
       "name": "libjxl",
-      "version": "0.11.1"
+      "version": "0.11.1#1"
     },
     {
       "name": "libpng",
@@ -195,7 +198,7 @@
     },
     {
       "name": "simdutf",
-      "version": "7.0.0#0"
+      "version": "7.3.0#0"
     },
     {
       "name": "skia",
